@@ -5,7 +5,7 @@ Version: 0.1.0
 Author: Yichen Zhu
 Maintainer: Yichen Zhu <yichen.zhu@unibocconi.it>
 Description: Performs Bayesian MCMC inference for generic Gaussian processes DAG structures.
-License: GPL (>= 3)
+License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Imports: Rcpp (>= 1.0.13)
