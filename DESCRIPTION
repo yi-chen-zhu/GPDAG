@@ -9,6 +9,6 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 LazyData: true
 Imports: Rcpp (>= 1.0.13)
-LinkingTo: Rcpp, RcppArmadillo, RcppEigen
+LinkingTo: Rcpp, RcppArmadillo, RcppEigen, FNN
 RoxygenNote: 7.3.2
 Roxygen: list(markdown = TRUE)
