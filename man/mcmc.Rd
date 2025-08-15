@@ -15,10 +15,12 @@ mcmc(
   nu = 3/2,
   tau = 1,
   sig = 0.1,
+  s = 1,
+  cov_type = "matern",
   n_mcmc = 4000L,
   n_burn = 2000L,
   tol = 1e-12,
-  maxcgiter = 200L
+  maxcgiter = 400L
 )
 }
 \arguments{

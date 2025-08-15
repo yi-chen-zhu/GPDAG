@@ -4,7 +4,7 @@
 \alias{DAG_Chol}
 \title{Cholesky of DAG GP covariance matrix}
 \usage{
-DAG_Chol(X, dag, nu = 3/2, tau = 1)
+DAG_Chol(X, dag, nu = 3/2, tau = 1, s = 1, cov_type = "matern", tol = 2e-16)
 }
 \arguments{
 \item{X}{arma::mat, with each row representing the coordiante of a location}
@@ -14,6 +14,8 @@ DAG_Chol(X, dag, nu = 3/2, tau = 1)
 \item{nu}{double, the smoothness of the Matern process}
 
 \item{tau}{double, rescaling parameter of the Matern process}
+
+\item{tol}{double, in case of numerical singularity (negative conditional variance), set the conditional variance as tol}
 }
 \value{
 Rcpp list consists of two entries, L and D, such that L D^{-1} L^T is the precision matrix.

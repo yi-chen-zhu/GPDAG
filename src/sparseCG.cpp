@@ -1,3 +1,4 @@
+// [[Rcpp::depends(RcppArmadillo)]]
 #include "RcppArmadillo.h"
 #include <RcppEigen.h>
 #include <cmath>
@@ -53,6 +54,39 @@ arma::mat cov_matern(const arma::mat& X1,
 }
 
 
+//' Covariance matrix of GP with Gaussian Kernel
+//'
+//' This function evaluates the covariance matrix of GP with Gaussian Kernel using the coordinates.
+//'
+//' @param X1 arma::mat, each row representing the coordiantes of a location
+//' @param X2 arma::mat, each row representing the coordiantes of a location
+//' @param tau double, the time rescaling parameter of the GP
+//' @param s double, the space rescaling parameter of the GP. Currently set as 1
+//' @return the computed covariance matrix.
+//' @useDynLib GPDAG, .registration = TRUE
+//' @export
+// [[Rcpp::export]]
+arma::mat cov_gaussian(const arma::mat& X1,
+                    const arma::mat& X2,
+                    double tau=1,
+                    double s=1){
+ arma::mat res(X1.n_rows,X2.n_rows);
+ for(unsigned int i=0; i<X1.n_rows; i++){
+   arma::rowvec cri = X1.row(i);
+   for(unsigned int j=0; j<X2.n_rows; j++){
+     arma::rowvec delta = cri - X2.row(j);
+     double delta_x = arma::norm(delta) * tau;
+     if(delta_x > 0.0){
+       res(i, j) = s * std::exp(- delta_x * delta_x);
+     } else {
+       res(i, j) = s;
+     }
+   }
+ }
+ return res;
+}
+
+
 //' Cholesky of DAG GP covariance matrix
 //'
 //' This function performs Cholesky decomposition of DAG GP covariance function. No input of the whole covariance matrix is
@@ -62,6 +96,7 @@ arma::mat cov_matern(const arma::mat& X1,
 //' @param dag arma::field<arma::uvec>, each entry contains the indices of its parent sets in DAG ordering
 //' @param nu double, the smoothness of the Matern process
 //' @param tau double, rescaling parameter of the Matern process
+//' @param tol double, in case of numerical singularity (negative conditional variance), set the conditional variance as tol
 //' @return Rcpp list consists of two entries, L and D, such that L D^{-1} L^T is the precision matrix.
 //' D is the conditonal variance for ith element, while the off-diagonal elements of L[,i] are negative conditional regression coefficients of ith elements on its parents.
 //' @useDynLib GPDAG, .registration = TRUE
@@ -70,7 +105,10 @@ arma::mat cov_matern(const arma::mat& X1,
 Rcpp::List DAG_Chol(const arma::mat& X,
                     const arma::field<arma::uvec>& dag,
                     double nu=3/2,
-                    double tau=1){
+                    double tau=1,
+                    double s=1,
+                    std::string cov_type="matern",
+                    double tol=2e-16){
   unsigned int n = X.n_rows;
   Eigen::VectorXd D(n);
   unsigned int n_nonzero=n;
@@ -85,17 +123,35 @@ Rcpp::List DAG_Chol(const arma::mat& X,
   for(int i=0; i<n; i++){
     const arma::mat& xi = X.row(i);
     const arma::mat& xpa = X.rows(dag(i));
-
-    arma::vec K_pai = cov_matern(xpa, xi, nu, tau);
-    arma::mat K_papa = cov_matern(xpa, xpa, nu, tau);
-    arma::mat Kinv_papa = arma::inv_sympd(K_papa);
-    arma::vec interp_coef = Kinv_papa * K_pai;
-    double K_cond = arma::as_scalar(cov_matern(xi,xi) - K_pai.t() * interp_coef);
-    D(i) = K_cond;
-    double sqrtDi = sqrt(D(i));
     triples_L.push_back(Eigen::Triplet<double>(i,i,1));
-    for(int j=0;j<dag(i).n_elem; j++){
-      triples_L.push_back(Eigen::Triplet<double>(dag(i)(j),i,-interp_coef(j)));
+
+    if (dag(i).n_elem>0){
+      arma::vec K_pai;
+      arma::mat K_papa;
+      if (cov_type=="matern"){
+        K_pai = cov_matern(xpa, xi, nu, tau);
+        K_papa = cov_matern(xpa, xpa, nu, tau);
+      } else if (cov_type=="gaussian"){
+        K_pai = cov_gaussian(xpa, xi, tau, s);
+        K_papa = cov_gaussian(xpa, xpa, tau, s);
+      }
+      arma::mat R = arma::chol(K_papa,"lower");   // R is a lower triangular matrix. K_papa = R * R.t()
+      arma::vec sqrt_sandwich = arma::solve(trimatl(R), K_pai);
+      arma::vec interp_coef = arma::solve(trimatu(R.t()), sqrt_sandwich);
+      double K_cond = s - dot(sqrt_sandwich, sqrt_sandwich);
+      D(i) = K_cond;
+
+      arma:: vec vtest;
+      if (!arma::solve(vtest, trimatl(R), K_pai, arma::solve_opts::no_approx)) {
+        Rcpp::Rcout << "Singular matrix R:\n" << R << std::endl;
+        Rcpp::stop("Matrix solve failed due to singularity.");
+      }
+
+      for(int j=0;j<dag(i).n_elem; j++){
+        triples_L.push_back(Eigen::Triplet<double>(dag(i)(j),i,-interp_coef(j)));
+      }
+    } else{
+      D(i) = s;
     }
   }
 
@@ -196,10 +252,12 @@ Rcpp::List mcmc(const arma::mat& X,
                 double nu=3/2,
                 double tau=1, // initial value for tau
                 double sig=0.1,  // initial value for sigma
+                double s=1,  // value for space rescaling of GP, which is fixed and not inferred by mcmc
+                std::string cov_type="matern", // type of covariance function for GP
                 unsigned int n_mcmc=4000,  // default number of mcmc iterations
                 unsigned int n_burn=2000,  // default number of burn-in iterations for mcmc
                 const double tol=1e-12,
-                const unsigned int maxcgiter=200
+                const unsigned int maxcgiter=400
                 ){
   auto t0 = std::chrono::high_resolution_clock::now();
   // data initialization
@@ -216,16 +274,15 @@ Rcpp::List mcmc(const arma::mat& X,
   std::tuple<Eigen::VectorXd, unsigned int, double> cg_obj;
 
   // tau related variables initialization
-  Rcpp::List chol_obj = DAG_Chol(X, dag, nu, tau);
+  Rcpp::List chol_obj = DAG_Chol(X, dag, nu, tau, s, cov_type);
   Eigen::SparseMatrix<double> L = chol_obj["L"];
   Eigen::VectorXd D = chol_obj["D"];
-  Eigen::SparseMatrix<double> Phi = L * L.transpose();
-  Eigen::SparseMatrix<double> Phi_nug = Phi + Id/(sig*sig);
-  double log_detL = 0;
+  Eigen::VectorXd Dsqrt = D.array().sqrt();
+  double log_det = 0;
   for (int i=0; i<n; i++){
-    log_detL += log(D(i));
+    log_det -= 0.5*log(D(i));
   }
-  double log_tau_prior = scalar_Rfun(log_tau_prior_fun(tau));
+  double log_tau_prior = scalar_Rfun(log_tau_prior_fun(tau,n,nu));
 
   // MCMC initialization
   unsigned int n_keep = n_mcmc - n_burn;
@@ -241,6 +298,8 @@ Rcpp::List mcmc(const arma::mat& X,
   Eigen::VectorXd W(n);
   Eigen::VectorXd W_precond(n);
   double logden;
+  double logden_diff;
+  double tau_prop;
   arma::vec cg_iters_records(n_mcmc);
   arma::vec cg_err_records(n_mcmc);
 
@@ -252,77 +311,101 @@ Rcpp::List mcmc(const arma::mat& X,
     // sample Z with CG
     Eigen::VectorXd W1 = vec_arma_2_Eigen(arma::randn(n));
     Eigen::VectorXd W2 = vec_arma_2_Eigen(arma::randn(n));
-    if (D.minCoeff()>sig*sig){
-      // directly perform CG without preconditioners
-      W = Ye/(sig*sig) + L*W1 + W2/sig;
-      Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> cg;
-      cg.setTolerance(sqrt(tol)/(sig*sig));
-      cg.compute(Phi_nug);
-      Z = cg.solveWithGuess(W,Ye);
-      cg_iters_records(imc) = cg.iterations();
-      cg_err_records(imc) = cg.error();
-    } else{
-      // perform CG with a preconditioner as the Cholesky decomposition of DAG covariance
-      Eigen::VectorXd Dsqrt = D.array().sqrt();
-      Eigen::VectorXd W_partial = Dsqrt.cwiseProduct( L.triangularView<Eigen::Upper>().solve(Ye/(sig*sig) + W2/sig) );
-      W_precond = W_partial + W1;
-      cg_obj = DAG_CG(L,D,sig,W_precond,tol,maxcgiter);
-      Z = std::get<0>(cg_obj);
-      cg_iters_records(imc) = std::get<1>(cg_obj);
-      cg_err_records(imc) = std::get<2>(cg_obj);
-    }
+
+    // // directly perform CG without preconditioners
+    // W = Ye/(sig*sig) + L*W1 + W2/sig;
+    // Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> cg;
+    // cg.setTolerance(1e-8/W.norm());
+    // cg.compute(Phi_nug);
+    // Z = cg.solveWithGuess(W,Ye);
+    // cg_iters_records(imc) = cg.iterations();
+    // cg_err_records(imc) = cg.error();
+
+    // perform CG with a preconditioner as the Cholesky decomposition of DAG covariance
+    Eigen::VectorXd W_partial = Dsqrt.cwiseProduct( L.triangularView<Eigen::Upper>().solve(Ye/(sig*sig) + W2/sig) );
+    W_precond = W_partial + W1;
+    cg_obj = DAG_CG(L,D,sig,W_precond,tol,maxcgiter);
+    Z = std::get<0>(cg_obj);
+    cg_iters_records(imc) = std::get<1>(cg_obj);
+    cg_err_records(imc) = std::get<2>(cg_obj);
+
+    // if (D.minCoeff()>sig*sig){
+    //   // directly perform CG without preconditioners
+    //   W = Ye/(sig*sig) + L*W1 + W2/sig;
+    //   Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> cg;
+    //   cg.setTolerance(sqrt(tol)/W.norm());
+    //   cg.compute(Phi_nug);
+    //   Z = cg.solveWithGuess(W,Ye);
+    //   cg_iters_records(imc) = cg.iterations();
+    //   cg_err_records(imc) = cg.error();
+    // } else{
+    //   // perform CG with a preconditioner as the Cholesky decomposition of DAG covariance
+    //   Eigen::VectorXd Dsqrt = D.array().sqrt();
+    //   Eigen::VectorXd W_partial = Dsqrt.cwiseProduct( L.triangularView<Eigen::Upper>().solve(Ye/(sig*sig) + W2/sig) );
+    //   W_precond = W_partial + W1;
+    //   cg_obj = DAG_CG(L,D,sig,W_precond,tol,maxcgiter);
+    //   Z = std::get<0>(cg_obj);
+    //   cg_iters_records(imc) = std::get<1>(cg_obj);
+    //   cg_err_records(imc) = std::get<2>(cg_obj);
+    // }
 
     Z_diff = Ye - Z;
     Eigen::MatrixXd LTZ = L.transpose() * Z;
-    double ZPhiZ = LTZ.squaredNorm();
-    logden = log_tau_prior + log_detL - ZPhiZ/2;
+    Eigen::VectorXd Dhalfinv_LTZ = Dsqrt.cwiseInverse().cwiseProduct(LTZ);
+    double ZPhiZ = Dhalfinv_LTZ.squaredNorm();
+    logden = log_tau_prior + log_det - ZPhiZ/2;
 
     // sample sig
     double sig2_mean = ( nug_prior(1)+Z_diff.squaredNorm()/2 )/(nug_prior(0)+n/2-1);
     sig = sqrt(1/R::rgamma(nug_prior(0)+n/2, 1/(nug_prior(1)+Z_diff.squaredNorm()/2)) );
 
     // sample tau
-    double tau_prop = tau + exp(AM_theta)*arma::randn(1)(0);
-    AM_step = AM_step0 / pow(imc+1,3/4);
-    bool accept=false;
-    if (tau_prop>tau_bound(0) and tau_prop<tau_bound(1)){
-      Rcpp::List chol_obj_prop = DAG_Chol(X, dag, nu, tau_prop);
-      Eigen::SparseMatrix<double> L_prop = chol_obj_prop["L"];
-      Eigen::VectorXd D_prop = chol_obj_prop["D"];
-      double log_detL_prop = 0;
-      for (int i=0; i<n; i++){
-        log_detL_prop += log(D_prop(i));
+    if (imc<100 or imc%10==0){
+      tau_prop = tau + exp(AM_theta)*arma::randn(1)(0);
+      AM_step = AM_step0 / pow(imc+1,3/4);
+      bool accept=false;
+      if (tau_prop>tau_bound(0) and tau_prop<tau_bound(1)){
+        Rcpp::List chol_obj_prop = DAG_Chol(X, dag, nu, tau_prop, s, cov_type);
+
+        Eigen::SparseMatrix<double> L_prop = chol_obj_prop["L"];
+        Eigen::VectorXd D_prop = chol_obj_prop["D"];
+        Eigen::VectorXd Dsqrt_prop = D_prop.array().sqrt();
+        double log_det_prop = 0;
+        for (int i=0; i<n; i++){
+          log_det_prop -= 0.5*log(D_prop(i));
+        }
+        Eigen::MatrixXd LTZ_prop = L_prop.transpose() * Z;
+        Eigen::VectorXd Dhalfinv_LTZ_prop = Dsqrt_prop.cwiseInverse().cwiseProduct(LTZ_prop);
+        double ZPhiZ_prop = Dhalfinv_LTZ_prop.squaredNorm();
+        double log_tau_prior_prop = scalar_Rfun(log_tau_prior_fun(tau_prop,n,nu));
+        double logden_prop = log_tau_prior_prop + log_det_prop - ZPhiZ_prop/2;
+        logden_diff = logden_prop - logden;
+        double AM_alpha = AM_alpha_star;
+
+        if (logden_diff>0){
+          accept=true;
+          AM_alpha = 1;
+        } else {
+          AM_alpha = exp(logden_diff);
+          accept= arma::randu<arma::vec>(1)(0) < AM_alpha;
+        }
+        if (accept){
+          tau = tau_prop;
+          L = L_prop;
+          D = D_prop;
+          Dsqrt = Dsqrt_prop;
+          log_tau_prior = log_tau_prior_prop;
+          log_det = log_det_prop;
+          if (imc>=n_burn){
+            n_accept += 1;
+          }
+        }
+        AM_theta = AM_theta + (AM_alpha-AM_alpha_star)*AM_step;
       }
-      Eigen::MatrixXd LTZ_prop = L_prop.transpose() * Z;
-      double ZPhiZ_prop = LTZ_prop.squaredNorm();
-      double log_tau_prior_prop = scalar_Rfun(log_tau_prior_fun(tau_prop));
-      double logden_prop = log_tau_prior_prop + log_detL_prop - ZPhiZ_prop/2;
-      double logden_diff = logden_prop - logden;
-      double AM_alpha = AM_alpha_star;
-      if (logden_diff>0){
-        accept=true;
-        AM_alpha = 1;
-      } else {
-        AM_alpha = exp(logden_diff);
-        accept= arma::randu<arma::vec>(1)(0) < AM_alpha;
-      }
-      if (accept){
-        tau = tau_prop;
-        L = L_prop;
-        D = D_prop;
-        Phi = L * L.transpose();
-        Phi_nug = Phi + Id/(sig*sig);
-        log_tau_prior = log_tau_prior_prop;
-        logden = logden_prop;
-      }
-      AM_theta = AM_theta + (AM_alpha-AM_alpha_star)*AM_step;
     }
 
-    // record tau, sig, Z
+    // record variables
     if (imc>=n_burn){
-      if (accept){
-        n_accept += 1;
-      }
       tau_records(imc-n_burn) = tau;
       sig_records(imc-n_burn) = sig;
       sig2_mean_records(imc-n_burn) = sig2_mean;
@@ -336,6 +419,12 @@ Rcpp::List mcmc(const arma::mat& X,
     }
   }
 
+  double n_tau_all;
+  if (n_burn>=100){
+    n_tau_all = (n_mcmc-n_burn)*0.1;
+  } else{
+    n_tau_all = 100-n_burn+(n_mcmc-100)*0.1;
+  }
   auto t3 = std::chrono::high_resolution_clock::now();
   std::chrono::duration<double> deltat_all = t3-t0;
   double RunTime = deltat_all.count();
@@ -344,7 +433,7 @@ Rcpp::List mcmc(const arma::mat& X,
     Rcpp::Named("sig_mcmc") = sig_records,
     Rcpp::Named("sig2_mean_mcmc") = sig2_mean_records,
     Rcpp::Named("Z_mcmc") = Z_records,
-    Rcpp::Named("Accept_ratio") = n_accept / (double)(n_mcmc-n_burn),
+    Rcpp::Named("Accept_ratio") = n_accept / n_tau_all,
     Rcpp::Named("L") = L,
     Rcpp::Named("D") = D,
     Rcpp::Named("RunTime") = RunTime,

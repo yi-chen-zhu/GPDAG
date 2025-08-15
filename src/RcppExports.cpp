@@ -27,9 +27,23 @@ BEGIN_RCPP
     return rcpp_result_gen;
 END_RCPP
 }
+// cov_gaussian
+arma::mat cov_gaussian(const arma::mat& X1, const arma::mat& X2, double tau, double s);
+RcppExport SEXP _GPDAG_cov_gaussian(SEXP X1SEXP, SEXP X2SEXP, SEXP tauSEXP, SEXP sSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const arma::mat& >::type X1(X1SEXP);
+    Rcpp::traits::input_parameter< const arma::mat& >::type X2(X2SEXP);
+    Rcpp::traits::input_parameter< double >::type tau(tauSEXP);
+    Rcpp::traits::input_parameter< double >::type s(sSEXP);
+    rcpp_result_gen = Rcpp::wrap(cov_gaussian(X1, X2, tau, s));
+    return rcpp_result_gen;
+END_RCPP
+}
 // DAG_Chol
-Rcpp::List DAG_Chol(const arma::mat& X, const arma::field<arma::uvec>& dag, double nu, double tau);
-RcppExport SEXP _GPDAG_DAG_Chol(SEXP XSEXP, SEXP dagSEXP, SEXP nuSEXP, SEXP tauSEXP) {
+Rcpp::List DAG_Chol(const arma::mat& X, const arma::field<arma::uvec>& dag, double nu, double tau, double s, std::string cov_type, double tol);
+RcppExport SEXP _GPDAG_DAG_Chol(SEXP XSEXP, SEXP dagSEXP, SEXP nuSEXP, SEXP tauSEXP, SEXP sSEXP, SEXP cov_typeSEXP, SEXP tolSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -37,13 +51,16 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< const arma::field<arma::uvec>& >::type dag(dagSEXP);
     Rcpp::traits::input_parameter< double >::type nu(nuSEXP);
     Rcpp::traits::input_parameter< double >::type tau(tauSEXP);
-    rcpp_result_gen = Rcpp::wrap(DAG_Chol(X, dag, nu, tau));
+    Rcpp::traits::input_parameter< double >::type s(sSEXP);
+    Rcpp::traits::input_parameter< std::string >::type cov_type(cov_typeSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    rcpp_result_gen = Rcpp::wrap(DAG_Chol(X, dag, nu, tau, s, cov_type, tol));
     return rcpp_result_gen;
 END_RCPP
 }
 // mcmc
-Rcpp::List mcmc(const arma::mat& X, const arma::field<arma::uvec>& dag, const arma::vec& Y, Function log_tau_prior_fun, const arma::vec tau_bound, const arma::vec nug_prior, const arma::vec sig_bound, double nu, double tau, double sig, unsigned int n_mcmc, unsigned int n_burn, const double tol, const unsigned int maxcgiter);
-RcppExport SEXP _GPDAG_mcmc(SEXP XSEXP, SEXP dagSEXP, SEXP YSEXP, SEXP log_tau_prior_funSEXP, SEXP tau_boundSEXP, SEXP nug_priorSEXP, SEXP sig_boundSEXP, SEXP nuSEXP, SEXP tauSEXP, SEXP sigSEXP, SEXP n_mcmcSEXP, SEXP n_burnSEXP, SEXP tolSEXP, SEXP maxcgiterSEXP) {
+Rcpp::List mcmc(const arma::mat& X, const arma::field<arma::uvec>& dag, const arma::vec& Y, Function log_tau_prior_fun, const arma::vec tau_bound, const arma::vec nug_prior, const arma::vec sig_bound, double nu, double tau, double sig, double s, std::string cov_type, unsigned int n_mcmc, unsigned int n_burn, const double tol, const unsigned int maxcgiter);
+RcppExport SEXP _GPDAG_mcmc(SEXP XSEXP, SEXP dagSEXP, SEXP YSEXP, SEXP log_tau_prior_funSEXP, SEXP tau_boundSEXP, SEXP nug_priorSEXP, SEXP sig_boundSEXP, SEXP nuSEXP, SEXP tauSEXP, SEXP sigSEXP, SEXP sSEXP, SEXP cov_typeSEXP, SEXP n_mcmcSEXP, SEXP n_burnSEXP, SEXP tolSEXP, SEXP maxcgiterSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
@@ -57,19 +74,22 @@ BEGIN_RCPP
     Rcpp::traits::input_parameter< double >::type nu(nuSEXP);
     Rcpp::traits::input_parameter< double >::type tau(tauSEXP);
     Rcpp::traits::input_parameter< double >::type sig(sigSEXP);
+    Rcpp::traits::input_parameter< double >::type s(sSEXP);
+    Rcpp::traits::input_parameter< std::string >::type cov_type(cov_typeSEXP);
     Rcpp::traits::input_parameter< unsigned int >::type n_mcmc(n_mcmcSEXP);
     Rcpp::traits::input_parameter< unsigned int >::type n_burn(n_burnSEXP);
     Rcpp::traits::input_parameter< const double >::type tol(tolSEXP);
     Rcpp::traits::input_parameter< const unsigned int >::type maxcgiter(maxcgiterSEXP);
-    rcpp_result_gen = Rcpp::wrap(mcmc(X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu, tau, sig, n_mcmc, n_burn, tol, maxcgiter));
+    rcpp_result_gen = Rcpp::wrap(mcmc(X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu, tau, sig, s, cov_type, n_mcmc, n_burn, tol, maxcgiter));
     return rcpp_result_gen;
 END_RCPP
 }
 
 static const R_CallMethodDef CallEntries[] = {
     {"_GPDAG_cov_matern", (DL_FUNC) &_GPDAG_cov_matern, 5},
-    {"_GPDAG_DAG_Chol", (DL_FUNC) &_GPDAG_DAG_Chol, 4},
-    {"_GPDAG_mcmc", (DL_FUNC) &_GPDAG_mcmc, 14},
+    {"_GPDAG_cov_gaussian", (DL_FUNC) &_GPDAG_cov_gaussian, 4},
+    {"_GPDAG_DAG_Chol", (DL_FUNC) &_GPDAG_DAG_Chol, 7},
+    {"_GPDAG_mcmc", (DL_FUNC) &_GPDAG_mcmc, 16},
     {NULL, NULL, 0}
 };
 

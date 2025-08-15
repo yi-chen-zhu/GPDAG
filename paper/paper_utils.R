@@ -3,7 +3,7 @@
 confidence_bands <- function(Y, alpha=0.05){
   n_mcmc = nrow(Y)
   n = ncol(Y)
-  i_low = floor(n_mcmc*alpha/2)
+  i_low = max(floor(n_mcmc*alpha/2),1)
   i_up = floor(n_mcmc*(1-alpha/2))+1
   Ymean = rep(0,n)
   Ylow = rep(0,n)

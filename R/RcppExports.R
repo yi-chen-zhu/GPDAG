@@ -17,6 +17,21 @@ cov_matern <- function(X1, X2, nu = 3/2, tau = 1, s = 1) {
     .Call(`_GPDAG_cov_matern`, X1, X2, nu, tau, s)
 }
 
+#' Covariance matrix of GP with Gaussian Kernel
+#'
+#' This function evaluates the covariance matrix of GP with Gaussian Kernel using the coordinates.
+#'
+#' @param X1 arma::mat, each row representing the coordiantes of a location
+#' @param X2 arma::mat, each row representing the coordiantes of a location
+#' @param tau double, the time rescaling parameter of the GP
+#' @param s double, the space rescaling parameter of the GP. Currently set as 1
+#' @return the computed covariance matrix.
+#' @useDynLib GPDAG, .registration = TRUE
+#' @export
+cov_gaussian <- function(X1, X2, tau = 1, s = 1) {
+    .Call(`_GPDAG_cov_gaussian`, X1, X2, tau, s)
+}
+
 #' Cholesky of DAG GP covariance matrix
 #'
 #' This function performs Cholesky decomposition of DAG GP covariance function. No input of the whole covariance matrix is
@@ -26,12 +41,13 @@ cov_matern <- function(X1, X2, nu = 3/2, tau = 1, s = 1) {
 #' @param dag arma::field<arma::uvec>, each entry contains the indices of its parent sets in DAG ordering
 #' @param nu double, the smoothness of the Matern process
 #' @param tau double, rescaling parameter of the Matern process
+#' @param tol double, in case of numerical singularity (negative conditional variance), set the conditional variance as tol
 #' @return Rcpp list consists of two entries, L and D, such that L D^{-1} L^T is the precision matrix.
 #' D is the conditonal variance for ith element, while the off-diagonal elements of L[,i] are negative conditional regression coefficients of ith elements on its parents.
 #' @useDynLib GPDAG, .registration = TRUE
 #' @export
-DAG_Chol <- function(X, dag, nu = 3/2, tau = 1) {
-    .Call(`_GPDAG_DAG_Chol`, X, dag, nu, tau)
+DAG_Chol <- function(X, dag, nu = 3/2, tau = 1, s = 1, cov_type = "matern", tol = 2e-16) {
+    .Call(`_GPDAG_DAG_Chol`, X, dag, nu, tau, s, cov_type, tol)
 }
 
 #' MCMC for DAG GP
@@ -65,7 +81,7 @@ DAG_Chol <- function(X, dag, nu = 3/2, tau = 1) {
 #'         CG_err: the conjugate gradient error for each MCMC step.
 #' @useDynLib GPDAG, .registration = TRUE
 #' @export
-mcmc <- function(X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu = 3/2, tau = 1, sig = 0.1, n_mcmc = 4000L, n_burn = 2000L, tol = 1e-12, maxcgiter = 200L) {
-    .Call(`_GPDAG_mcmc`, X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu, tau, sig, n_mcmc, n_burn, tol, maxcgiter)
+mcmc <- function(X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu = 3/2, tau = 1, sig = 0.1, s = 1, cov_type = "matern", n_mcmc = 4000L, n_burn = 2000L, tol = 1e-12, maxcgiter = 400L) {
+    .Call(`_GPDAG_mcmc`, X, dag, Y, log_tau_prior_fun, tau_bound, nug_prior, sig_bound, nu, tau, sig, s, cov_type, n_mcmc, n_burn, tol, maxcgiter)
 }
 

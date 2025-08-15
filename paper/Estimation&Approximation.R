@@ -3,6 +3,8 @@ library(ggplot2)
 library(scales)
 library(gridExtra)
 library(GPDAG)
+source("/home/yichen/GPDAG/paper/paper_utils.R")
+
 
 ## model and priors
 nu = 1.5
@@ -12,7 +14,7 @@ sig_prior_size = 10
 sig2_prior = c(sig_prior_size, sig_prior_size*sig^2)   ## gamma distribution parameters for sig2^{-1}
 tau = 10
 tau_bound = c(tau-1e-3,tau+1e-3)
-log_tau_fun <- function(tau){
+log_tau_fun <- function(tau, n, nu){
   return(1)
 }
 
@@ -29,7 +31,6 @@ X_cov = cov_matern(X, X, nu, tau)
 Yf = MASS::mvrnorm(1,rep(0,n),X_cov)
 Yf = Yf - mean(Yf)
 Y = Yf + rnorm(n)*sig
-# plot(X,Yf)
 sig2_bound = c(1e-3, sqrt(sum((Y-mean(Y))^2)/(n-1)) )
 
 ## Experimental settings
@@ -39,9 +40,11 @@ j_lst = seq(4,J)
 nj = length(j_lst)
 fhat_records = vector('list',nj)
 finf_records = rep(0,nj)
+f2_records = rep(0,nj)
 sig_records = rep(0,nj)
 fhat_mm_records = vector('list',nj)
 finf_mm_records = rep(0,nj)
+f2_mm_records = rep(0,nj)
 sig_mm_records = rep(0,nj)
 df_records = vector('list',nj)
 plots = vector('list',nj)
@@ -77,16 +80,18 @@ for (j in j_lst){
   ## mcmc of maxmin dag
   mcmc_obj_mm = mcmc(Xj_mm, dagj_mm_cpp, Yj_mm, log_tau_fun, tau_bound, sig2_prior, sig2_bound, nu=nu, tau=tau, sig=sig,
                   n_mcmc=n_mcmc, n_burn=n_burn)
-  fhat_mm_obj = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming]) ## fhat_mm_obj is already converted to ordering of Y
+  fhat_mm_obj = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming]) ## fhat_mm_obj is converted to ordering of Y in this line
   sighat_mm = mean(mcmc_obj_mm$sig_mcmc)
 
   ## records mcmc outputs
   j_ind = j-j_lst[1]+1
   fhat_records[[j_ind]] = fhat_obj$mean
   finf_records[j_ind] = max(abs(fhat_obj$mean-Yf[1:(2^j+1)]))
+  f2_records[j_ind] = sqrt( sum((fhat_obj$mean-Yf[1:(2^j+1)])^2)/(2^j+1) )
   sig_records[j_ind] = sighat
   fhat_mm_records[[j_ind]] = fhat_mm_obj$mean
   finf_mm_records[j_ind] = max(abs(fhat_mm_obj$mean-Yf[1:(2^j+1)]))
+  f2_mm_records[j_ind] = sqrt( sum((fhat_mm_obj$mean-Yf[1:(2^j+1)])^2)/(2^j+1) )
   sig_mm_records[j_ind] = sighat_mm
   RunTime_records[j_ind,] = c(mcmc_obj$RunTime, mcmc_obj_mm$RunTime)
   df <- data.frame(X=Xj, Y=Yj, Truth=Yf[1:(2^j+1)], Norming=fhat_obj$mean, Norming_low=fhat_obj$low, Norming_up=fhat_obj$up,
@@ -95,8 +100,8 @@ for (j in j_lst){
 
   ## output for current j
   print(paste('n=',2^j+1))
-  print(paste('l^infty estimation error, Norming DAG:', max(abs(fhat_obj$mean-Yf[1:(2^j+1)])),
-              ', Maximin DAG', max(abs(fhat_mm_obj$mean-Yf[1:(2^j+1)])) ))
+  print(paste('l^2 estimation error, Norming DAG:', f2_records[j_ind],
+              ', Maximin DAG', f2_mm_records[j_ind] ))
   print(paste('sigma, truth:',sig,' Norming DAG:',sighat, ', Maximin DAG:',sighat_mm ))
   print(paste('Running Time, Norming DAG:',mcmc_obj$RunTime, ', Maximin DAG:',mcmc_obj_mm$RunTime ))
 }
@@ -113,37 +118,36 @@ for (j_ind in 1:length(j_lst)){
     geom_ribbon(data=df, mapping=aes(x=X,ymin=Maximin_low,ymax=Maximin_up),fill='#F8766D',alpha=0.4) +
     geom_line(data=df_fits, mapping=aes(x=X,y=Y,color=Method), size=1) +
     geom_line(data=df_f, mapping=aes(x=X,y=Yf), color='black', size=1) +
-    geom_point(data=df, mapping=aes(x=X,y=Y), shape=20, size=1.2, alpha=1) +
+    # geom_point(data=df, mapping=aes(x=X,y=Y), shape=20, size=1.2, alpha=1) +
     scale_colour_manual(values = c("#619CFF","#F8766D","black")) + ylim(ylims[1],ylims[2])+
     theme_minimal(base_size = 20) + labs(caption=paste('n=',2^j_lst[[j_ind]]+1)) +
     theme(legend.position='none', axis.title.x=element_blank(),axis.title.y=element_blank(),
           plot.caption=element_text(hjust=0.5, size=rel(1)))
-  # print(plots[[j_ind]])
 }
 
+df = df_records[[6]]
 df_fits = reshape2::melt(df[c('X', 'Norming', 'Maximin', 'Truth')], id.vars = "X", variable.name = "Method", value.name = "Y")
 p_jmax =
   ggplot() +
   geom_ribbon(data=df, mapping=aes(x=X,ymin=Norming_low,ymax=Norming_up),fill='#619CFF',alpha=0.4) +
   geom_ribbon(data=df, mapping=aes(x=X,ymin=Maximin_low,ymax=Maximin_up),fill='#F8766D',alpha=0.4) +
   geom_line(data=df_fits, mapping=aes(x=X,y=Y,color=Method), size=0.8) +
-  geom_point(data=df, mapping=aes(x=X,y=Y), shape=20, size=0.6, alpha=1) +
   scale_colour_manual(values = c("#619CFF","#F8766D","black")) + ylim(ylims[1],ylims[2])+
-  theme_minimal(base_size = 20) + labs(caption=paste('n=',2^j+1)) +
+  theme_minimal(base_size = 20) + labs(caption=paste('n=',2^j_lst[[6]]+1)) +
   theme(axis.title.x=element_blank(),axis.title.y=element_blank(),
         plot.caption=element_text(hjust=0.5, size=rel(1)))
 
-grid.arrange(plots[[2]], plots[[5]], p_jmax, nrow=1, widths=c(1,1,1.23))
+grid.arrange(plots[[2]], plots[[4]], p_jmax, nrow=1, widths=c(1,1,1.23))
 
 ## plot estimation error and computation time
-df_linf_err = data.frame(logn=log(2^j_lst+1), Norming=finf_records, Maximin=finf_mm_records)
-df_linf_err = df_linf_err[2:length(j_lst),]
-df_linf_err_melt = reshape2::melt(df_linf_err, id.vars='logn', variable.name="Method", value.name="Error")
+df_err = data.frame(logn=log(2^j_lst+1), Norming=f2_records, Maximin=f2_mm_records)
+df_err = df_err[2:length(j_lst),]
+df_err_melt = reshape2::melt(df_err, id.vars='logn', variable.name="Method", value.name="Error")
 p_est =
-  ggplot(df_linf_err_melt) +
+  ggplot(df_err_melt) +
   geom_line(aes(x=logn,y=Error,color=Method)) +
   geom_point(aes(x=logn,y=Error,color=Method),shape=2) +
-  theme_minimal(base_size = 20) + ylim(0,0.25) +
+  theme_minimal(base_size = 20) + ylim(0,0.1) +
   xlab('ln(n)') + ylab('Posterior Estimation Error') +
   theme(legend.position='none')
 
@@ -159,9 +163,7 @@ p_time =
 
 
 ##----------------------------prior approximation-------------------------------
-
 jprior_lst = seq(5,J)
-# X_cov_id = X_cov[ord_2_id,ord_2_id]
 W22_table = matrix(0, nrow=length(jprior_lst), ncol=2)
 
 for (j in jprior_lst){
