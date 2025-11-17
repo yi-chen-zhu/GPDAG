@@ -2,6 +2,7 @@ library(Matrix)
 library(ggplot2)
 library(scales)
 library(gridExtra)
+library(Rcpp)
 library(GPDAG)
 source("/home/yichen/GPDAG/paper/paper_utils.R")
 
@@ -109,8 +110,11 @@ for (j in j_lst){
 ylims = c(min(df_records[[2]][,2:ncol(df_records[[2]])])-0.1, max(df_records[[2]][,2:ncol(df_records[[1]])])+0.1)
 # ylims = c(-1.3,1.3)
 df_f = data.frame(X=X, Y=Yf)
+coverage = matrix(0, nrow=length(j_lst), ncol=2)
 for (j_ind in 1:length(j_lst)){
   df = df_records[[j_ind]]
+  coverage[j_ind,1] = sum((df$Norming_up >= df$Truth) * (df$Norming_low <= df$Truth)) / length(df$Truth)
+  coverage[j_ind,2] = sum((df$Maximin_up >= df$Truth) * (df$Maximin_low <= df$Truth)) / length(df$Truth)
   df_fits = reshape2::melt(df[c('X', 'Norming', 'Maximin')], id.vars = "X", variable.name = "Method", value.name = "Y")
   plots[[j_ind]] =
     ggplot() +
@@ -124,6 +128,8 @@ for (j_ind in 1:length(j_lst)){
     theme(legend.position='none', axis.title.x=element_blank(),axis.title.y=element_blank(),
           plot.caption=element_text(hjust=0.5, size=rel(1)))
 }
+
+print(coverage)
 
 df = df_records[[6]]
 df_fits = reshape2::melt(df[c('X', 'Norming', 'Maximin', 'Truth')], id.vars = "X", variable.name = "Method", value.name = "Y")

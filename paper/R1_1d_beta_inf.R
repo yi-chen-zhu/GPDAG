@@ -2,6 +2,7 @@ library(Matrix)
 library(ggplot2)
 library(scales)
 library(gridExtra)
+library(Rcpp)
 library(GPDAG)
 source("/home/yichen/GPDAG/paper/paper_utils.R")
 
@@ -67,6 +68,7 @@ RunTime_records = matrix(NA,nrow=nj,ncol=3)
 norm1_obj_records = vector('list',nj)
 norm2_obj_records = vector('list',nj)
 mm_obj_records = vector('list',nj)
+coverage = matrix(0, nrow=length(j_lst), ncol=3)
 
 ## Experiments
 for (j in j_lst){
@@ -103,11 +105,12 @@ for (j in j_lst){
                        n_mcmc=n_mcmc, n_burn=n_burn)
   }
 
-
   ## records mcmc outputs
   j_ind = j-j_lst[1]+1
-  fhat_norm1_records[[j_ind]] = confidence_bands(mcmc_obj1$Z_mcmc)$mean
-  fhat_norm2_records[[j_ind]] = confidence_bands(mcmc_obj2$Z_mcmc)$mean
+  conf_norming1 = confidence_bands(mcmc_obj1$Z_mcmc)
+  conf_norming2 = confidence_bands(mcmc_obj2$Z_mcmc)
+  fhat_norm1_records[[j_ind]] = conf_norming1$mean
+  fhat_norm2_records[[j_ind]] = conf_norming2$mean
   sig_records[j_ind,1:2] = c(mean(mcmc_obj1$sig_mcmc), mean(mcmc_obj2$sig_mcmc))
   finf_records[j_ind,1:2] = c(max(abs(fhat_norm1_records[[j_ind]] - Yf_norm[1:(2^j+1)])),
                            max(abs(fhat_norm2_records[[j_ind]] - Yf_norm[1:(2^j+1)])))
@@ -116,16 +119,19 @@ for (j in j_lst){
   RunTime_records[j_ind,1:2] = c(mcmc_obj1$RunTime, mcmc_obj2$RunTime)
   norm1_obj_records[[j_ind]] = mcmc_obj1
   norm2_obj_records[[j_ind]] = mcmc_obj2
+  coverage[j_ind,1] = sum((conf_norming1$up >= Yf_norm[1:(2^j+1)]) * (conf_norming1$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
+  coverage[j_ind,2] = sum((conf_norming2$up >= Yf_norm[1:(2^j+1)]) * (conf_norming2$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
 
   if (j<=j_mm){
-    fhat_mm_records[[j_ind]] = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming])$mean  ## fhat_mm is converted to ordering of Xj in this line
+    conf_mm = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming])
+    fhat_mm_records[[j_ind]] = conf_mm$mean  ## fhat_mm is converted to ordering of Xj in this line
     sig_records[j_ind,3] = mean(mcmc_obj_mm$sig_mcmc)
     finf_records[j_ind,3] = max(abs(fhat_mm_records[[j_ind]] - Yf_norm[1:(2^j+1)]))
     f2_records[j_ind,3] = sqrt(sum((fhat_mm_records[[j_ind]] - Yf_norm[1:(2^j+1)])^2)/(2^j+1))
     RunTime_records[j_ind,3] = mcmc_obj_mm$RunTime
     mm_obj_records[[j_ind]] = mcmc_obj_mm
+    coverage[j_ind,3] = sum((conf_mm$up >= Yf_norm[1:(2^j+1)]) * (conf_mm$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
   }
-
 
   ## output for current j
   print(paste('n=',2^j+1))
@@ -133,6 +139,8 @@ for (j in j_lst){
   print(paste('sigma, truth:',sig,' Estimates:', sig_records[j_ind,]))
   print(paste('Running Time:', RunTime_records[j_ind,]))
 }
+
+print(coverage)
 
 ## plot estimation error and computation time
 df_err = data.frame(logn=log(2^j_lst+1), Norming1=f2_records[,1], Norming2=f2_records[,2], Maximin=f2_records[,3])

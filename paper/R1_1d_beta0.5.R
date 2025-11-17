@@ -2,6 +2,7 @@ library(Matrix)
 library(ggplot2)
 library(scales)
 library(gridExtra)
+library(Rcpp)
 library(GPDAG)
 source("/home/yichen/GPDAG/paper/paper_utils.R")
 
@@ -62,6 +63,7 @@ RunTime_records = matrix(0,nrow=nj,ncol=3)
 norm1_obj_records = vector('list',nj)
 norm2_obj_records = vector('list',nj)
 mm_obj_records = vector('list',nj)
+coverage = matrix(0, nrow=length(j_lst), ncol=3)
 
 ## Experiments
 for (j in j_lst){
@@ -98,9 +100,12 @@ for (j in j_lst){
 
   ## records mcmc outputs
   j_ind = j-j_lst[1]+1
-  fhat_norm1_records[[j_ind]] = confidence_bands(mcmc_obj1$Z_mcmc)$mean
-  fhat_norm2_records[[j_ind]] = confidence_bands(mcmc_obj2$Z_mcmc)$mean
-  fhat_mm_records[[j_ind]] = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming])$mean  ## fhat_mm is converted to ordering of Xj in this line
+  conf_norming1 = confidence_bands(mcmc_obj1$Z_mcmc)
+  conf_norming2 = confidence_bands(mcmc_obj2$Z_mcmc)
+  conf_mm = confidence_bands(mcmc_obj_mm$Z_mcmc[,ordj_mm_2_ord_norming])
+  fhat_norm1_records[[j_ind]] = conf_norming1$mean
+  fhat_norm2_records[[j_ind]] = conf_norming2$mean
+  fhat_mm_records[[j_ind]] = conf_mm$mean  ## fhat_mm is converted to ordering of Xj in this line
 
   sig_records[j_ind,] = c(mean(mcmc_obj1$sig_mcmc), mean(mcmc_obj2$sig_mcmc), mean(mcmc_obj_mm$sig_mcmc))
   finf_records[j_ind,] = c(max(abs(fhat_norm1_records[[j_ind]] - Yf_norm[1:(2^j+1)])),
@@ -115,12 +120,18 @@ for (j in j_lst){
   norm2_obj_records[[j_ind]] = mcmc_obj2
   mm_obj_records[[j_ind]] = mcmc_obj_mm
 
+  coverage[j_ind,1] = sum((conf_norming1$up >= Yf_norm[1:(2^j+1)]) * (conf_norming1$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
+  coverage[j_ind,2] = sum((conf_norming2$up >= Yf_norm[1:(2^j+1)]) * (conf_norming2$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
+  coverage[j_ind,3] = sum((conf_mm$up >= Yf_norm[1:(2^j+1)]) * (conf_mm$low <= Yf_norm[1:(2^j+1)])) / length(Yf_norm[1:(2^j+1)])
+
   ## output for current j
   print(paste('n=',2^j+1))
   print(paste('l^2 estimation error:', f2_records[j_ind,]))
   print(paste('sigma, truth:',sig,' Estimates:', sig_records[j_ind,]))
   print(paste('Running Time:', RunTime_records[j_ind,]))
 }
+
+print(coverage)
 
 ## plot estimation error and computation time
 df_err = data.frame(logn=log(2^j_lst+1), Norming1=f2_records[,1], Norming2=f2_records[,2], Maximin=f2_records[,3])
@@ -211,12 +222,12 @@ for (j in jprior_lst){
     Xj_mm_all = Xj_mm
   }
   dagj_mm_cpp = Rdag_to_Cppdag(dagj_mm)
-  chol_j_mm_obj = DAG_Chol(Xj_mm_all, dagj_mm_cpp, nu=nu, tau=tau)
+  chol_j_mm_obj = DAG_Chol(Xj_mm_all, dagj_mm_cpp, nu=beta, tau=tau)
   L_j_mm = as.matrix(Matrix(chol_j_mm_obj$L,sparse=FALSE))
   L_j_mm_inv = solve(L_j_mm)
   D_j_mm = chol_j_mm_obj$D
   cov_j_mm = t(L_j_mm_inv) %*% diag(D_j_mm) %*% L_j_mm_inv
-  X_cov_j_mm = cov_matern(Xj_mm_all,Xj_mm_all,nu=nu,tau=tau)
+  X_cov_j_mm = cov_matern(Xj_mm_all,Xj_mm_all,nu=beta,tau=tau)
   W22_table[j_ind,3] = matrix_W22(X_cov_j_mm, cov_j_mm)
   print(paste('j=',j,' W22 of Norming 1:', W22_table[j_ind,1], ' W22 of Norming 2:', W22_table[j_ind,2], ' W22 of Maximin:', W22_table[j_ind,3]))
 }
